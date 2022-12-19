@@ -1,4 +1,6 @@
 .vs/
 build/
 CMakeSettings.json
-*.txt
+a.txt
+b.txt
+c.txt
