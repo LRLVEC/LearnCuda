@@ -3,6 +3,7 @@
 #include <random>
 #include <_Time.h>
 #include <_BLAS.h>
+#include <cutlass/gemm/device/gemm.h>
 
 // All matrices are row-major
 
@@ -135,13 +136,39 @@ __global__ void gemm_fast(float* a, float* b, float* c, size_t a_x, size_t b_x)
 	}
 }
 
+
+cudaError_t gemm_cutlass(float* a, float* b, float* c, size_t a_x, size_t b_x, size_t a_y)
+{
+	using RowMajor = cutlass::layout::RowMajor;
+	using CutlassGemm = cutlass::gemm::device::Gemm<
+		float, RowMajor,
+		float, RowMajor,
+		float, RowMajor>;
+
+	CutlassGemm gemm_operator;
+	CutlassGemm::Arguments args({ int(b_x), int(a_y), int(a_x) },
+		{ a, a_x },
+		{ b, b_x },
+		{ c, b_x },
+		{ c, b_x },
+		{ 1.f, 0.f });
+	cutlass::Status status = gemm_operator(args);
+	if (status != cutlass::Status::kSuccess)
+	{
+		return cudaErrorUnknown;
+	}
+	return cudaSuccess;
+}
+
+
 int main()
 {
+	constexpr bool check_result(true);
 	std::mt19937 mt(114514);
-	constexpr unsigned int a_row = 8192;
-	constexpr unsigned int a_col = 8192;
-	constexpr unsigned int b_row = 8192;
-	constexpr unsigned int b_col = 8192;
+	constexpr unsigned int a_row = 2048;
+	constexpr unsigned int a_col = 2048;
+	constexpr unsigned int b_row = 2048;
+	constexpr unsigned int b_col = 2048;
 	constexpr unsigned int c_row = a_row;
 	constexpr unsigned int c_col = b_col;
 	printf("%dx%d * %dx%d -> %dx%d\n", a_row, a_col, b_row, b_col, c_row, c_col);
@@ -165,10 +192,13 @@ int main()
 	timer.end();
 	timer.print("gen rand mat b:");
 
-	// timer.begin();
-	// a(b, c);
-	// timer.end();
-	// timer.print("cpu mult");
+	if (check_result)
+	{
+		timer.begin();
+		a(b, c);
+		timer.end();
+		timer.print("cpu mult");
+	}
 
 	float* a_host;
 	float* b_host;
@@ -219,9 +249,13 @@ int main()
 		cudaDeviceSynchronize();
 		timer.end();
 		timer.print("cuda mult:");
+		printf("flops: %.3f T\n", double(a_col) * c_row * c_col / (timer.deltaT() * 1e12));
 	}
-	// cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
-	// check(c_host, c, a_col);
+	if (check_result)
+	{
+		cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
+		check(c_host, c, a_col);
+	}
 
 	// for (int c0(0); c0 < 10;++c0)
 	{
@@ -233,8 +267,27 @@ int main()
 		timer.print("cuda mult fast:");
 		printf("flops: %.3f T\n", double(a_col) * c_row * c_col / (timer.deltaT() * 1e12));
 	}
-	// cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
-	// check(c_host, c, a_col);
+	if (check_result)
+	{
+		cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
+		check(c_host, c, a_col);
+	}
+
+	// for (int c0(0); c0 < 10;++c0)
+	{
+		cudaDeviceSynchronize();
+		timer.begin();
+		gemm_cutlass(a_device, b_device, c_device, a_col, b_col, a_row);
+		cudaDeviceSynchronize();
+		timer.end();
+		timer.print("cuda mult cutlass:");
+		printf("flops: %.3f T\n", double(a_col) * c_row * c_col / (timer.deltaT() * 1e12));
+	}
+	if (check_result)
+	{
+		cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
+		check(c_host, c, a_col);
+	}
 
 	free(a_host);
 	free(b_host);

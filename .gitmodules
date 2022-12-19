@@ -3,4 +3,4 @@
 	url = https://github.com/LRLVEC/tiny-stl.git
 [submodule "dependencies/cutlass"]
 	path = dependencies/cutlass
-	url = https://github.com/NVIDIA/cutlass.git
+	url = https://github.com/LRLVEC/cutlass.git
