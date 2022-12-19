@@ -110,6 +110,8 @@ __global__ void gemm_fast(float* a, float* b, float* c, size_t a_x, size_t b_x)
 	int cnt(0);
 	do
 	{
+		// read (8 + 64) * 4 bytes from global mem
+		// do 4096 fma calc
 		for (int i(0); i < RollTimes; i += VecWarpNum)
 		{
 			bs[threadIdx.y + i][threadIdx.x] = b[i * b_x];
