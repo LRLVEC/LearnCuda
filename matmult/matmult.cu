@@ -91,48 +91,106 @@ __global__ void gemm(float* a, float* b, float* c, size_t a_x, size_t b_x)
 	c[row * b_x + col] = sum;
 }
 
-constexpr unsigned int VecSize = 512;
-constexpr unsigned int VecWarp = 64;
-constexpr unsigned int VecWarpNum = VecSize / VecWarp;
-constexpr unsigned int RollWidth = 64;
-constexpr unsigned int RollTimes = VecWarp;
-
+constexpr unsigned int VecSize_gemm_fast = 512;
+constexpr unsigned int VecWarp_gemm_fast = 64;
+constexpr unsigned int VecWarpNum_gemm_fast = VecSize_gemm_fast / VecWarp_gemm_fast;
+constexpr unsigned int RollWidth_gemm_fast = 64;
+constexpr unsigned int RollTimes_gemm_fast = VecWarp_gemm_fast;
 
 __global__ void gemm_fast(float* a, float* b, float* c, size_t a_x, size_t b_x)
 {
-	// threadIdx.x: [0, RollWidth - 1]
-	// id: [0, VecSize - 1]
-	unsigned int id = threadIdx.x + threadIdx.y * VecWarp;
-	a += a_x * (blockIdx.x * VecSize + id);
-	b += b_x * threadIdx.y + blockIdx.y * RollWidth + threadIdx.x;
-	c += b_x * (blockIdx.x * VecSize + id) + blockIdx.y * RollWidth;
-	__shared__ float bs[RollTimes][RollWidth + 1];
-	float cs[RollWidth] = { 0 };
+	// threadIdx.x: [0, RollWidth_gemm_fast - 1]
+	// id: [0, VecSize_gemm_fast - 1]
+	unsigned int id = threadIdx.x + threadIdx.y * VecWarp_gemm_fast;
+	a += a_x * (blockIdx.x * VecSize_gemm_fast + id);
+	b += b_x * threadIdx.y + blockIdx.y * RollWidth_gemm_fast + threadIdx.x;
+	c += b_x * (blockIdx.x * VecSize_gemm_fast + id) + blockIdx.y * RollWidth_gemm_fast;
+	__shared__ float bs[RollTimes_gemm_fast][RollWidth_gemm_fast + 1];
+	float cs[RollWidth_gemm_fast] = { 0 };
 	int cnt(0);
 	do
 	{
 		// read (8 + 64) * 4 bytes from global mem
 		// do 4096 fma calc
-		for (int i(0); i < RollTimes; i += VecWarpNum)
+		for (int i(0); i < RollTimes_gemm_fast; i += VecWarpNum_gemm_fast)
 		{
 			bs[threadIdx.y + i][threadIdx.x] = b[i * b_x];
 		}
-		b += RollTimes * b_x;
-		cnt += RollTimes;
+		b += RollTimes_gemm_fast * b_x;
+		cnt += RollTimes_gemm_fast;
 		__syncthreads();
-		for (int i(0); i < RollTimes; ++i, ++a)
+		for (int i(0); i < RollTimes_gemm_fast; ++i, ++a)
 		{
 			float a0 = a[0];
-			for (int j(0); j < RollWidth; ++j)
+			for (int j(0); j < RollWidth_gemm_fast; ++j)
 			{
+				// slow! need to read one from shared each time:
+				// fma.rn.f32     %f454, %f266, %f269, %f454;
+				// ld.shared.f32  %f270, [%r23+16];
+				// fma.rn.f32     %f453, %f266, %f270, %f453;
+				// ld.shared.f32  %f271, [%r23+20];
 				cs[j] += a0 * bs[i][j];
 			}
 		}
 		__syncthreads();
 	} while (cnt < a_x);
-	for (int i(0); i < RollWidth; ++i)
+	for (int i(0); i < RollWidth_gemm_fast; ++i)
 	{
 		c[i] = cs[i];
+	}
+}
+
+
+constexpr unsigned int TileSize = 64;
+// launch: [16, 16, 1]
+__global__ void gemm_faster(float* a, float* b, float* c, size_t a_x, size_t b_x)
+{
+	__shared__ float ta[TileSize][TileSize], tb[TileSize][TileSize];
+	int row = blockIdx.y * blockDim.y;
+	int col = blockIdx.x * blockDim.x;
+	float ar[4][4];
+	float br[4][4];
+	float cr[4][4] = { 0 };
+	for (int c0(0); c0 < a_x; c0 += TileSize)
+	{
+		int id = threadIdx.x + threadIdx.y * 16;
+		for (int c1(0); c1 < 64; c1 += 4)
+		{
+			int x = id % 64;
+			int y = c1 + id / 64;
+			ta[y][x] = a[(row + y) * a_x + c0 + x];
+			tb[y][x] = b[(c0 + y) * b_x + col + x];
+		}
+		__syncthreads();
+		for (int c1(0); c1 < TileSize; c1 += 4)
+		{
+			for (int i(0); i < 4; ++i)
+			{
+				for (int j(0); j < 4; ++j)
+				{
+					ar[i][j] = ta[threadIdx.y * 4 + i][c1 + j];
+					br[j][i] = tb[c1 + i][threadIdx.x * 4 + j];
+				}
+			}
+			for (int i(0); i < 4; ++i)
+			{
+				for (int j(0); j < 4; ++j)
+				{
+					cr[i][j] += ar[i][0] * br[j][0];
+					cr[i][j] += ar[i][1] * br[j][1];
+					cr[i][j] += ar[i][2] * br[j][2];
+					cr[i][j] += ar[i][3] * br[j][3];
+				}
+			}
+		}
+		__syncthreads();
+	}
+	for (int c0(0); c0 < 4; ++c0)
+	{
+		for (int c1(0); c1 < 4; ++c1)
+		{
+			c[b_x * (row + threadIdx.y * 4 + c0) + col + threadIdx.x * 4 + c1] = cr[c0][c1];
+		}
 	}
 }
 
@@ -236,10 +294,13 @@ int main()
 
 	dim3 block = { TILE_DIM, TILE_DIM, 1 };
 	dim3 grid = { c_col / TILE_DIM, c_row / TILE_DIM, 1 };
-	dim3 block_fast = { VecWarp, VecWarpNum, 1 };
-	dim3 grid_fast = { c_row / VecSize, c_col / RollWidth, 1 };
+	dim3 block_fast = { VecWarp_gemm_fast, VecWarpNum_gemm_fast, 1 };
+	dim3 grid_fast = { c_row / VecSize_gemm_fast, c_col / RollWidth_gemm_fast, 1 };
+	dim3 block_faster = { 16, 16, 1 };
+	dim3 grid_faster = { c_row / TileSize, c_col / TileSize, 1 };
 	printf("Launch grid: [%d, %d, %d]\n", grid.x, grid.y, grid.z);
 	printf("Launch grid fast: [%d, %d, %d]\n", grid_fast.x, grid_fast.y, grid_fast.z);
+	printf("Launch grid faster: [%d, %d, %d]\n", grid_faster.x, grid_faster.y, grid_faster.z);
 
 	// for (int c0(0); c0 < 10;++c0)
 	{
@@ -265,6 +326,22 @@ int main()
 		cudaDeviceSynchronize();
 		timer.end();
 		timer.print("cuda mult fast:");
+		printf("flops: %.3f T\n", double(a_col) * c_row * c_col / (timer.deltaT() * 1e12));
+	}
+	if (check_result)
+	{
+		cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
+		check(c_host, c, a_col);
+	}
+
+	// for (int c0(0); c0 < 10;++c0)
+	{
+		cudaDeviceSynchronize();
+		timer.begin();
+		gemm_faster << <grid_faster, block_faster >> > (a_device, b_device, c_device, a_col, b_col);
+		cudaDeviceSynchronize();
+		timer.end();
+		timer.print("cuda mult faster:");
 		printf("flops: %.3f T\n", double(a_col) * c_row * c_col / (timer.deltaT() * 1e12));
 	}
 	if (check_result)
