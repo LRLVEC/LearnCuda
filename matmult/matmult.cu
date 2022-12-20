@@ -153,8 +153,8 @@ constexpr unsigned int ThreadNum = KernelNum * KernelNum;
 __global__ void gemm_faster(float* a, float* b, float* c, size_t a_x, size_t b_x)
 {
 	__shared__ float ta[TileSize][RollLength], tb[RollLength][TileSize];
-	int row = blockIdx.y * blockDim.y;
-	int col = blockIdx.x * blockDim.x;
+	int row = blockIdx.y * blockDim.y * KernelSize;
+	int col = blockIdx.x * blockDim.x * KernelSize;
 	float ar[KernelSize][KernelLength];
 	float br[KernelSize][KernelLength];
 	float cr[KernelSize][KernelSize] = { 0 };
@@ -231,12 +231,12 @@ cudaError_t gemm_cutlass(float* a, float* b, float* c, size_t a_x, size_t b_x, s
 int main()
 {
 	constexpr unsigned int loop_num(1);
-	constexpr bool check_result(false);
+	constexpr bool check_result(true);
 	std::mt19937 mt(114514);
-	constexpr unsigned int a_row = 8192;
-	constexpr unsigned int a_col = 8192;
-	constexpr unsigned int b_row = 8192;
-	constexpr unsigned int b_col = 8192;
+	constexpr unsigned int a_row = 2048;
+	constexpr unsigned int a_col = 2048;
+	constexpr unsigned int b_row = 2048;
+	constexpr unsigned int b_col = 2048;
 	constexpr unsigned int c_row = a_row;
 	constexpr unsigned int c_col = b_col;
 	printf("%dx%d * %dx%d -> %dx%d\n", a_row, a_col, b_row, b_col, c_row, c_col);
@@ -325,6 +325,7 @@ int main()
 	if (check_result)
 	{
 		cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
+		cudaMemset(c_device, 0, c_size);
 		check(c_host, c, a_col);
 	}
 
@@ -341,6 +342,7 @@ int main()
 	if (check_result)
 	{
 		cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
+		cudaMemset(c_device, 0, c_size);
 		check(c_host, c, a_col);
 	}
 
@@ -357,6 +359,7 @@ int main()
 	if (check_result)
 	{
 		cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
+		cudaMemset(c_device, 0, c_size);
 		check(c_host, c, a_col);
 	}
 
@@ -373,6 +376,7 @@ int main()
 	if (check_result)
 	{
 		cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
+		cudaMemset(c_device, 0, c_size);
 		check(c_host, c, a_col);
 	}
 

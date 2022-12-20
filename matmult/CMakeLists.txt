@@ -4,9 +4,12 @@ target_include_directories(matmult PUBLIC
 	"../dependencies/tiny-stl/include"
 	"../dependencies/cutlass/include"
 )
+# target_link_libraries(matmult cublas)
+
 add_library(matmult_ptx OBJECT matmult.cu)
 set_property(TARGET matmult_ptx PROPERTY CUDA_PTX_COMPILATION ON)
 target_include_directories(matmult_ptx PUBLIC
 	"../dependencies/tiny-stl/include"
 	"../dependencies/cutlass/include"
 )
+# target_link_libraries(matmult_ptx cublas)

@@ -1,6 +1,30 @@
 {
     "extension": "ncu-proj",
     "files": [
+        {
+            "path": "8192_tile_16_4090.ncu-rep"
+        },
+        {
+            "path": "8192_tile_32_4090.ncu-rep"
+        },
+        {
+            "path": "8192_fast_4090.ncu-rep"
+        },
+        {
+            "path": "8192_fast256_4090.ncu-rep"
+        },
+        {
+            "path": "8192_fast512_4090.ncu-rep"
+        },
+        {
+            "path": "8192_cutlass_4090.ncu-rep"
+        },
+        {
+            "path": "8192_faster_tile_64_4090.ncu-rep"
+        },
+        {
+            "path": "8192_faster_tile_128_4090.ncu-rep"
+        }
     ],
     "launcher": {
         "activity/interactiveprofile/cachecontrol": "Flush All",
