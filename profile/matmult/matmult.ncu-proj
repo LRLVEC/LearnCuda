@@ -17,6 +17,7 @@
             "path": "8192_fast512_4090.ncu-rep"
         },
         {
+            "is_open": true,
             "path": "8192_cutlass_4090.ncu-rep"
         },
         {
@@ -24,6 +25,12 @@
         },
         {
             "path": "8192_faster_tile_128_4090.ncu-rep"
+        },
+        {
+            "path": "8192_extreme_tile_128_256_4090.ncu-rep"
+        },
+        {
+            "path": "8192_extreme_tile_128_256_no_bank_conflict_4090.ncu-rep"
         }
     ],
     "launcher": {

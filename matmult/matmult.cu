@@ -142,66 +142,139 @@ __global__ void gemm_fast(float* a, float* b, float* c, size_t a_x, size_t b_x)
 }
 
 
-constexpr unsigned int TileSize = 128;
-constexpr unsigned int RollLength = 16;
-constexpr unsigned int KernelSize = 8;
-constexpr unsigned int KernelLength = 8;
-constexpr unsigned int KernelNum = TileSize / KernelSize;
-constexpr unsigned int ThreadNum = KernelNum * KernelNum;
+constexpr unsigned int TileSize_faster = 128;
+constexpr unsigned int RollLength_faster = 16;
+constexpr unsigned int KernelSize_faster = 8;
+constexpr unsigned int KernelLength_faster = 8;
+constexpr unsigned int KernelNum_faster = TileSize_faster / KernelSize_faster;
+constexpr unsigned int ThreadNum_faster = KernelNum_faster * KernelNum_faster;
 
 // launch: [32, 32, 1]
 __global__ void gemm_faster(float* a, float* b, float* c, size_t a_x, size_t b_x)
 {
-	__shared__ float ta[TileSize][RollLength], tb[RollLength][TileSize];
-	int row = blockIdx.y * blockDim.y * KernelSize;
-	int col = blockIdx.x * blockDim.x * KernelSize;
-	float ar[KernelSize][KernelLength];
-	float br[KernelSize][KernelLength];
-	float cr[KernelSize][KernelSize] = { 0 };
-	for (int c0(0); c0 < a_x; c0 += RollLength)
+	__shared__ float ta[TileSize_faster][RollLength_faster], tb[RollLength_faster][TileSize_faster];
+	int row = blockIdx.y * blockDim.y * KernelSize_faster;
+	int col = blockIdx.x * blockDim.x * KernelSize_faster;
+	float ar[KernelSize_faster][KernelLength_faster];
+	float br[KernelSize_faster][KernelLength_faster];
+	float cr[KernelSize_faster][KernelSize_faster] = { 0 };
+	for (int c0(0); c0 < a_x; c0 += RollLength_faster)
 	{
 		// read: 128*16*2
 		// calc: 128*128*16
 		// ratio: 128/2 / 4 = 16
-		int id = threadIdx.x + threadIdx.y * KernelNum;
-		for (int c1(0); c1 < TileSize; c1 += ThreadNum / RollLength)
+		int id = threadIdx.x + threadIdx.y * KernelNum_faster;
+		for (int c1(0); c1 < TileSize_faster; c1 += ThreadNum_faster / RollLength_faster)
 		{
-			int x = id % RollLength;
-			int y = c1 + id / RollLength;
+			int x = id % RollLength_faster;
+			int y = c1 + id / RollLength_faster;
 			ta[y][x] = a[(row + y) * a_x + c0 + x];
 		}
-		for (int c1(0); c1 < RollLength; c1 += ThreadNum / TileSize)
+		for (int c1(0); c1 < RollLength_faster; c1 += ThreadNum_faster / TileSize_faster)
 		{
-			int x = id % TileSize;
-			int y = c1 + id / TileSize;
+			int x = id % TileSize_faster;
+			int y = c1 + id / TileSize_faster;
 			tb[y][x] = b[(c0 + y) * b_x + col + x];
 		}
 		__syncthreads();
-		for (int c1(0); c1 < RollLength; c1 += KernelLength)
+		for (int c1(0); c1 < RollLength_faster; c1 += KernelLength_faster)
 		{
-			for (int i(0); i < KernelSize; ++i)
+			for (int i(0); i < KernelSize_faster; ++i)
 			{
-				for (int j(0); j < KernelLength; ++j)
+				for (int j(0); j < KernelLength_faster; ++j)
 				{
-					ar[i][j] = ta[threadIdx.y * KernelSize + i][c1 + j];
-					br[i][j] = tb[c1 + j][threadIdx.x * KernelSize + i];
+					ar[i][j] = ta[threadIdx.y * KernelSize_faster + i][c1 + j];
+					br[i][j] = tb[c1 + j][threadIdx.x * KernelSize_faster + i];
 				}
 			}
-			for (int i(0); i < KernelSize; ++i)
-				for (int k(0); k < KernelLength; ++k)
-					for (int j(0); j < KernelSize; ++j)
+			for (int i(0); i < KernelSize_faster; ++i)
+				for (int k(0); k < KernelLength_faster; ++k)
+					for (int j(0); j < KernelSize_faster; ++j)
 						cr[i][j] += ar[i][k] * br[j][k];
 		}
 		__syncthreads();
 	}
-	for (int c0(0); c0 < KernelSize; ++c0)
+	for (int c0(0); c0 < KernelSize_faster; ++c0)
 	{
-		for (int c1(0); c1 < KernelSize; ++c1)
+		for (int c1(0); c1 < KernelSize_faster; ++c1)
 		{
-			c[b_x * (row + threadIdx.y * KernelSize + c0) + col + threadIdx.x * KernelSize + c1] = cr[c0][c1];
+			c[b_x * (row + threadIdx.y * KernelSize_faster + c0) + col + threadIdx.x * KernelSize_faster + c1] = cr[c0][c1];
 		}
 	}
 }
+
+
+constexpr unsigned int TileSizeA_extreme = 256;// y
+constexpr unsigned int TileSizeB_extreme = 128;// x
+constexpr unsigned int RollLength_extreme = 16;
+constexpr unsigned int KernelSize_extreme = 8;
+constexpr unsigned int KernelLength_extreme = 4;
+constexpr unsigned int KernelNumX_extreme = TileSizeB_extreme / KernelSize_extreme;
+constexpr unsigned int KernelNumY_extreme = TileSizeA_extreme / KernelSize_extreme;
+constexpr unsigned int ThreadNum_extreme = KernelNumX_extreme * KernelNumY_extreme;
+
+// launch: [32, 32, 1]
+__global__ void gemm_extreme(float* a, float* b, float* c, size_t a_x, size_t b_x)
+{
+	__shared__ float ta[TileSizeA_extreme][RollLength_extreme], tb[RollLength_extreme][TileSizeB_extreme];
+	// sizeof(ta);
+	// sizeof(tb);
+	int row = blockIdx.y * blockDim.y * KernelSize_extreme;
+	int col = blockIdx.x * blockDim.x * KernelSize_extreme;
+	float ar[KernelSize_extreme][KernelLength_extreme];
+	float br[KernelSize_extreme][KernelLength_extreme];
+	float cr[KernelSize_extreme][KernelSize_extreme] = { 0 };
+	for (int c0(0); c0 < a_x; c0 += RollLength_extreme)
+	{
+		// read: (128 + 256) * 16
+		// calc: 128 * 256 * 16
+		// ratio: 128 * 256 / (4 * (128 + 256)) = 21.3
+		int id = threadIdx.x + threadIdx.y * KernelNumX_extreme;
+		int x = id % RollLength_extreme;
+		for (int c1(0); c1 < TileSizeA_extreme; c1 += ThreadNum_extreme / RollLength_extreme)
+		{
+			int y = c1 + id / RollLength_extreme;
+			ta[y][x] = a[(row + y) * a_x + c0 + x];
+		}
+		for (int c1(0); c1 < RollLength_extreme; c1 += ThreadNum_extreme / TileSizeB_extreme)
+		{
+			x = id % TileSizeB_extreme;
+			int new_x = ((x >> 3) << 3) + ((x + (x >> 3)) & 7);
+			int y = c1 + id / TileSizeB_extreme;
+			// make sure that no new bank conflict is introduced here: yes
+			tb[y][new_x] = b[(c0 + y) * b_x + col + x];
+		}
+		__syncthreads();
+		for (int c1(0); c1 < RollLength_extreme; c1 += KernelLength_extreme)
+		{
+			for (int i(0); i < KernelSize_extreme; ++i)
+			{
+				int new_i = (i + threadIdx.x) & 7;
+				for (int j(0); j < KernelLength_extreme; ++j)
+				{
+					ar[i][j] = ta[threadIdx.y * KernelSize_extreme + i][c1 + j];
+					// if use the original sampling method:
+					// 8 threads from threadIdx.x 0, 2, 4, ..., 14 access the same bank
+					// 8 threads from threadIdx.x 1, 3, 5, ..., 15 access the same bank
+					br[i][j] = tb[c1 + j][threadIdx.x * KernelSize_extreme + new_i];
+				}
+			}
+			for (int i(0); i < KernelSize_extreme; ++i)
+				for (int k(0); k < KernelLength_extreme; ++k)
+					for (int j(0); j < KernelSize_extreme; ++j)
+						cr[i][j] += ar[i][k] * br[j][k];
+		}
+		__syncthreads();
+	}
+	for (int c0(0); c0 < KernelSize_extreme; ++c0)
+	{
+		for (int c1(0); c1 < KernelSize_extreme; ++c1)
+		{
+			c[b_x * (row + threadIdx.y * KernelSize_extreme + c0) + col + threadIdx.x * KernelSize_extreme + c1] = cr[c0][c1];
+		}
+	}
+}
+
 
 
 cudaError_t gemm_cutlass(float* a, float* b, float* c, size_t a_x, size_t b_x, size_t a_y)
@@ -231,12 +304,12 @@ cudaError_t gemm_cutlass(float* a, float* b, float* c, size_t a_x, size_t b_x, s
 int main()
 {
 	constexpr unsigned int loop_num(1);
-	constexpr bool check_result(true);
+	constexpr bool check_result(false);
 	std::mt19937 mt(114514);
-	constexpr unsigned int a_row = 2048;
-	constexpr unsigned int a_col = 2048;
-	constexpr unsigned int b_row = 2048;
-	constexpr unsigned int b_col = 2048;
+	constexpr unsigned int a_row = 8192;
+	constexpr unsigned int a_col = 8192;
+	constexpr unsigned int b_row = 8192;
+	constexpr unsigned int b_col = 8192;
 	constexpr unsigned int c_row = a_row;
 	constexpr unsigned int c_col = b_col;
 	printf("%dx%d * %dx%d -> %dx%d\n", a_row, a_col, b_row, b_col, c_row, c_col);
@@ -304,13 +377,20 @@ int main()
 
 	dim3 block = { TILE_DIM, TILE_DIM, 1 };
 	dim3 grid = { c_col / TILE_DIM, c_row / TILE_DIM, 1 };
+
 	dim3 block_fast = { VecWarp_gemm_fast, VecWarpNum_gemm_fast, 1 };
 	dim3 grid_fast = { c_row / VecSize_gemm_fast, c_col / RollWidth_gemm_fast, 1 };
-	dim3 block_faster = { KernelNum, KernelNum, 1 };
-	dim3 grid_faster = { c_row / TileSize, c_col / TileSize, 1 };
+
+	dim3 block_faster = { KernelNum_faster, KernelNum_faster, 1 };
+	dim3 grid_faster = { c_row / TileSize_faster, c_col / TileSize_faster, 1 };
+
+	dim3 block_extreme = { KernelNumX_extreme, KernelNumY_extreme, 1 };
+	dim3 grid_extreme = { c_row / TileSizeB_extreme, c_col / TileSizeA_extreme, 1 };
+
 	printf("Launch grid: [%d, %d, %d]\n", grid.x, grid.y, grid.z);
 	printf("Launch grid fast: [%d, %d, %d]\n", grid_fast.x, grid_fast.y, grid_fast.z);
 	printf("Launch grid faster: [%d, %d, %d]\n", grid_faster.x, grid_faster.y, grid_faster.z);
+	printf("Launch grid extreme: [%d, %d, %d]\n", grid_extreme.x, grid_extreme.y, grid_extreme.z);
 
 	for (int c0(0); c0 < loop_num; ++c0)
 	{
@@ -319,7 +399,7 @@ int main()
 		gemm << <grid, block >> > (a_device, b_device, c_device, a_col, b_col);
 		cudaDeviceSynchronize();
 		timer.end();
-		timer.print("cuda mult:");
+		timer.print("cuda mult not so naive:");
 		printf("flops: %.3f T\n", double(a_col) * c_row * c_col / (timer.deltaT() * 1e12));
 	}
 	if (check_result)
@@ -354,6 +434,23 @@ int main()
 		cudaDeviceSynchronize();
 		timer.end();
 		timer.print("cuda mult faster:");
+		printf("flops: %.3f T\n", double(a_col) * c_row * c_col / (timer.deltaT() * 1e12));
+	}
+	if (check_result)
+	{
+		cudaMemcpy(c_host, c_device, c_size, cudaMemcpyDeviceToHost);
+		cudaMemset(c_device, 0, c_size);
+		check(c_host, c, a_col);
+	}
+
+	for (int c0(0); c0 < loop_num; ++c0)
+	{
+		cudaDeviceSynchronize();
+		timer.begin();
+		gemm_extreme << <grid_extreme, block_extreme >> > (a_device, b_device, c_device, a_col, b_col);
+		cudaDeviceSynchronize();
+		timer.end();
+		timer.print("cuda mult extreme:");
 		printf("flops: %.3f T\n", double(a_col) * c_row * c_col / (timer.deltaT() * 1e12));
 	}
 	if (check_result)
