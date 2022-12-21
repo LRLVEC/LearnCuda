@@ -31,6 +31,12 @@
         },
         {
             "path": "8192_extreme_tile_128_256_no_bank_conflict_4090.ncu-rep"
+        },
+        {
+            "path": "8192_ultra_tile_128_4090.ncu-rep"
+        },
+        {
+            "path": "8192_extreme_tile_128_256_no_bank_conflict_L2_4090.ncu-rep"
         }
     ],
     "launcher": {
